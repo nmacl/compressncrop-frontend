@@ -516,88 +516,104 @@
                 eventSource.close();
             }
 
-            eventSource = new EventSource(`${BACKEND_URL}/api/progress/${sessionId}`);
-            
-            eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    console.log('Progress update:', data);
-                    
-                    switch (data.type) {
-                        case 'connected':
-                            addProgressLog('Connected to progress tracking', null, 'info');
-                            break;
+            try {
+                const url = `${BACKEND_URL}/api/progress/${sessionId}`;
+                console.log('Connecting to SSE:', url);
+                
+                eventSource = new EventSource(url);
+                
+                eventSource.onopen = () => {
+                    console.log('SSE connection opened');
+                };
+                
+                eventSource.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Progress update:', data);
                         
-                        case 'upload_complete':
-                            addProgressLog(
-                                `Upload complete: ${data.totalFiles} images received`,
-                                `Total size: ${data.message.match(/[\d.]+\s*MB/)?.[0] || 'N/A'}`,
-                                'upload'
-                            );
-                            break;
-                        
-                        case 'processing_started':
-                            addProgressLog('Starting image processing...', null, 'processing');
-                            break;
-                        
-                        case 'processing_file':
-                            updateProgress(data.current, data.total);
-                            addProgressLog(
-                                `Processing image ${data.current}/${data.total}`,
-                                data.filename,
-                                'processing'
-                            );
-                            break;
-                        
-                        case 'file_completed':
-                            const reduction = data.compressionRatio;
-                            const originalKB = (data.originalSize / 1024).toFixed(2);
-                            const finalKB = (data.finalSize / 1024).toFixed(2);
-                            addProgressLog(
-                                `✓ ${data.filename}`,
-                                `${originalKB} KB → ${finalKB} KB (${reduction}% reduction) | Quality: ${data.quality}% | ${data.processingTime}ms`,
-                                'completed'
-                            );
-                            break;
-                        
-                        case 'file_error':
-                            addProgressLog(
-                                `Error: ${data.filename}`,
-                                data.error,
-                                'error'
-                            );
-                            break;
-                        
-                        case 'creating_zip':
-                            addProgressLog(
-                                'Creating zip archive...',
-                                `Processed ${data.processedCount} images in ${(data.totalTime / 1000).toFixed(2)}s`,
-                                'info'
-                            );
-                            break;
-                        
-                        case 'complete':
-                            updateProgress(data.totalFiles, data.totalFiles);
-                            addProgressLog(
-                                '🎉 Processing complete!',
-                                `${data.processedCount} images processed in ${(data.totalTime / 1000).toFixed(2)}s | Zip: ${(data.zipSize / 1024 / 1024).toFixed(2)} MB`,
-                                'completed'
-                            );
-                            break;
-                        
-                        case 'error':
-                            addProgressLog('Error occurred', data.error, 'error');
-                            break;
+                        switch (data.type) {
+                            case 'connected':
+                                addProgressLog('Connected to progress tracking', null, 'info');
+                                break;
+                            
+                            case 'upload_complete':
+                                addProgressLog(
+                                    `Upload complete: ${data.totalFiles} images received`,
+                                    `Total size: ${data.message.match(/[\d.]+\s*MB/)?.[0] || 'N/A'}`,
+                                    'upload'
+                                );
+                                break;
+                            
+                            case 'processing_started':
+                                addProgressLog('Starting image processing...', null, 'processing');
+                                break;
+                            
+                            case 'processing_file':
+                                updateProgress(data.current, data.total);
+                                addProgressLog(
+                                    `Processing image ${data.current}/${data.total}`,
+                                    data.filename,
+                                    'processing'
+                                );
+                                break;
+                            
+                            case 'file_completed':
+                                const reduction = data.compressionRatio;
+                                const originalKB = (data.originalSize / 1024).toFixed(2);
+                                const finalKB = (data.finalSize / 1024).toFixed(2);
+                                addProgressLog(
+                                    `✓ ${data.filename}`,
+                                    `${originalKB} KB → ${finalKB} KB (${reduction}% reduction) | Quality: ${data.quality}% | ${data.processingTime}ms`,
+                                    'completed'
+                                );
+                                break;
+                            
+                            case 'file_error':
+                                addProgressLog(
+                                    `Error: ${data.filename}`,
+                                    data.error,
+                                    'error'
+                                );
+                                break;
+                            
+                            case 'creating_zip':
+                                addProgressLog(
+                                    'Creating zip archive...',
+                                    `Processed ${data.processedCount} images in ${(data.totalTime / 1000).toFixed(2)}s`,
+                                    'info'
+                                );
+                                break;
+                            
+                            case 'complete':
+                                updateProgress(data.totalFiles, data.totalFiles);
+                                addProgressLog(
+                                    '🎉 Processing complete!',
+                                    `${data.processedCount} images processed in ${(data.totalTime / 1000).toFixed(2)}s | Zip: ${(data.zipSize / 1024 / 1024).toFixed(2)} MB`,
+                                    'completed'
+                                );
+                                break;
+                            
+                            case 'error':
+                                addProgressLog('Error occurred', data.error, 'error');
+                                break;
+                        }
+                    } catch (err) {
+                        console.error('Error parsing SSE data:', err);
                     }
-                } catch (err) {
-                    console.error('Error parsing SSE data:', err);
-                }
-            };
-            
-            eventSource.onerror = (error) => {
-                console.error('SSE error:', error);
-                eventSource.close();
-            };
+                };
+                
+                eventSource.onerror = (error) => {
+                    console.warn('SSE connection error (progress tracking disabled):', error);
+                    addProgressLog('⚠️ Live progress tracking unavailable', 'Processing will continue normally', 'info');
+                    if (eventSource) {
+                        eventSource.close();
+                        eventSource = null;
+                    }
+                };
+            } catch (err) {
+                console.warn('Failed to setup SSE:', err);
+                addProgressLog('⚠️ Live progress tracking unavailable', 'Processing will continue normally', 'info');
+            }
         }
 
         async function processBatch(files, batchNum, totalBatches) {
